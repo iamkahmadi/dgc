@@ -1,0 +1,167 @@
+package p2p
+
+import (
+	"dgc/blockchain"
+	"dgc/wallet"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/gorilla/websocket"
+)
+
+const P2P_PORT = "5001"
+
+var peers = os.Getenv("PEERS")
+
+type MessageType string
+
+const (
+	CHAIN              MessageType = "CHAIN"
+	TRANSACTION        MessageType = "TRANSACTION"
+	CLEAR_TRANSACTIONS MessageType = "CLEAR_TRANSACTIONS"
+)
+
+type P2pServer struct {
+	blockchain      *blockchain.Blockchain
+	transactionPool *wallet.TransactionPool
+	sockets         []*websocket.Conn
+}
+
+func NewP2pServer(blockchain *blockchain.Blockchain, transactionPool *wallet.TransactionPool) *P2pServer {
+	return &P2pServer{
+		blockchain:      blockchain,
+		transactionPool: transactionPool,
+		sockets:         make([]*websocket.Conn, 0),
+	}
+}
+
+func (server *P2pServer) Listen() {
+	// WebSocket server to listen for incoming connections
+	http.HandleFunc("/", server.handleConnection)
+	go http.ListenAndServe(":"+P2P_PORT, nil)
+
+	// Connect to peers (if any are defined in the environment variable)
+	server.connectToPeers()
+
+	log.Printf("Listening for peer-to-peer connections on: %s", P2P_PORT)
+}
+
+func (server *P2pServer) connectToPeers() {
+	peerList := strings.Split(peers, ",")
+	for _, peer := range peerList {
+		if peer != "" {
+			server.connectToPeer(peer)
+		}
+	}
+}
+
+func (server *P2pServer) connectToPeer(peer string) {
+	conn, _, err := websocket.DefaultDialer.Dial(peer, nil)
+	if err != nil {
+		log.Println("Error connecting to peer:", err)
+		return
+	}
+	server.connectSocket(conn)
+}
+
+func (server *P2pServer) connectSocket(socket *websocket.Conn) {
+	server.sockets = append(server.sockets, socket)
+	log.Println("Socket connected")
+
+	// Handle incoming messages
+	go server.messageHandler(socket)
+
+	// Send the blockchain to the connected peer
+	server.sendChain(socket)
+}
+
+func (server *P2pServer) messageHandler(socket *websocket.Conn) {
+	for {
+		_, message, err := socket.ReadMessage()
+		if err != nil {
+			log.Println("Error reading message:", err)
+			return
+		}
+
+		var data struct {
+			Type        MessageType        `json:"type"`
+			Chain       []blockchain.Block `json:"chain"`
+			Transaction wallet.Transaction `json:"transaction"`
+		}
+
+		err = json.Unmarshal(message, &data)
+		if err != nil {
+			log.Println("Error unmarshaling message:", err)
+			continue
+		}
+
+		switch data.Type {
+		case CHAIN:
+			server.blockchain.ReplaceChain(data.Chain)
+		case TRANSACTION:
+			server.transactionPool.UpdateOrAddTransaction(data.Transaction)
+		case CLEAR_TRANSACTIONS:
+			server.transactionPool.Clear()
+		}
+	}
+}
+
+func (server *P2pServer) sendChain(socket *websocket.Conn) {
+	message := struct {
+		Type  MessageType        `json:"type"`
+		Chain []blockchain.Block `json:"chain"`
+	}{
+		Type:  CHAIN,
+		Chain: server.blockchain.GetChain(),
+	}
+
+	err := socket.WriteJSON(message)
+	if err != nil {
+		log.Println("Error sending chain:", err)
+	}
+}
+
+func (server *P2pServer) sendTransaction(socket *websocket.Conn, transaction wallet.Transaction) {
+	message := struct {
+		Type        MessageType        `json:"type"`
+		Transaction wallet.Transaction `json:"transaction"`
+	}{
+		Type:        TRANSACTION,
+		Transaction: transaction,
+	}
+
+	err := socket.WriteJSON(message)
+	if err != nil {
+		log.Println("Error sending transaction:", err)
+	}
+}
+
+func (server *P2pServer) syncChains() {
+	for _, socket := range server.sockets {
+		server.sendChain(socket)
+	}
+}
+
+func (server *P2pServer) broadcastTransaction(transaction wallet.Transaction) {
+	for _, socket := range server.sockets {
+		server.sendTransaction(socket, transaction)
+	}
+}
+
+func (server *P2pServer) broadcastClearTransactions() {
+	for _, socket := range server.sockets {
+		message := struct {
+			Type MessageType `json:"type"`
+		}{
+			Type: CLEAR_TRANSACTIONS,
+		}
+
+		err := socket.WriteJSON(message)
+		if err != nil {
+			log.Println("Error broadcasting clear transactions:", err)
+		}
+	}
+}

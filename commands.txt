@@ -1,0 +1,22 @@
+Make sure to pass the environment variables properly when running your application.
+In PowerShell, set the environment variables :
+powershell commands
+1st Instance:
+go run main.go
+2nd Instance:
+$env:HTTP_PORT="3002"; $env:P2P_PORT="5002"; $env:PEERS="ws://localhost:5001"; go run main.go
+3rd Instance:
+$env:HTTP_PORT="3003"; $env:P2P_PORT="5003"; $env:PEERS="ws://localhost:5001,ws://localhost:5002"; go run main.go
+
+In Command Prompt (CMD), you can use the following:
+set HTTP_PORT=3002
+set P2P_PORT=5002
+set PEERS=ws://localhost:5001
+go run main.go
+
+For Testing WebSocket
+wscat -c ws://localhost:5002
+
+To clear all environment variables in your current PowerShell session, you can use the following command:
+powershell
+Remove-Item env:*

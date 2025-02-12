@@ -1,0 +1,182 @@
+package app
+
+import (
+	"dgc/blockchain"
+	"dgc/miner"
+	"dgc/p2p-server"
+	"dgc/wallet"
+	"dgc/wallet/transaction-pool"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+)
+
+var HTTP_PORT = getEnv("HTTP_PORT", "3001")
+
+var (
+	bc        = blockchain.NewBlockchain()
+	wallet    = wallet.NewWallet()
+	tp        = transaction_pool.NewTransactionPool()
+	p2pServer = p2p_server.NewP2pServer(bc, tp)
+	miner     = miner.NewMiner(bc, tp, wallet, p2pServer)
+)
+
+func getEnv(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// Struct to capture the request body for mining and transactions
+type MineRequest struct {
+	Data string `json:"data"`
+}
+
+func getBlocks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(bc.Chain())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func mineBlock(w http.ResponseWriter, r *http.Request) {
+	// Read the body of the request
+	var req MineRequest
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Parse the JSON body into the MineRequest struct
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Convert the string data to a slice of strings
+	data := []string{req.Data}
+
+	// Add the new block to the blockchain using the converted data
+	block := bc.AddBlock(data)
+
+	// Log the added block
+	log.Printf("New block added: %s", block.ToString())
+
+	// Respond with the newly mined block
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(block)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Optionally, sync with other peers if you have a P2P server
+	p2pServer.SyncChains()
+}
+
+func getTransactions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(tp.Transactions())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func createTransaction(w http.ResponseWriter, r *http.Request) {
+	// Parse the request to get the transaction details
+	var req struct {
+		Recipient string `json:"recipient"`
+		Amount    int    `json:"amount"`
+	}
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Create a transaction
+	transaction := wallet.CreateTransaction(req.Recipient, req.Amount, bc, tp)
+
+	// Broadcast the transaction to peers
+	p2pServer.BroadcastTransaction(transaction)
+
+	// Respond with the created transaction
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(transaction)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func mineTransactions(w http.ResponseWriter, r *http.Request) {
+	block := miner.Mine()
+
+	// Log the added block
+	log.Printf("New block added: %s", block.ToString())
+
+	// Respond with the newly mined block
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(block)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func getPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(map[string]string{"publicKey": wallet.PublicKey()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func App() {
+	// Define the routes
+	http.HandleFunc("/blocks", getBlocks)
+	http.HandleFunc("/mine", mineBlock)
+	http.HandleFunc("/transactions", getTransactions)
+	http.HandleFunc("/transact", createTransaction)
+	http.HandleFunc("/mine-transactions", mineTransactions)
+	http.HandleFunc("/public-key", getPublicKey)
+
+	// Show a message before starting the server
+	log.Printf("Starting server on port %s...\n", HTTP_PORT)
+
+	// Use sync.WaitGroup to keep the main thread alive
+	var wg sync.WaitGroup
+	wg.Add(2) // We have two goroutines: one for the HTTP server and one for the P2P server
+
+	// Start the HTTP server in a separate goroutine
+	go func() {
+		defer wg.Done()
+		log.Printf("Starting HTTP server on port %s...\n", HTTP_PORT)
+		err := http.ListenAndServe(":"+HTTP_PORT, nil)
+		if err != nil {
+			log.Fatalf("Error starting HTTP server: %v\n", err)
+		}
+	}()
+
+	// Start the P2P server (this is already running in its own goroutine in Listen())
+	go func() {
+		defer wg.Done()
+		log.Printf("Starting P2P server...\n")
+		p2pServer.Listen()
+	}()
+
+	// Wait for both goroutines to finish
+	wg.Wait()
+}

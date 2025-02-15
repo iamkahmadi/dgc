@@ -3,6 +3,7 @@ package app
 import (
 	"dgc/blockchain"
 	"dgc/types"
+	"dgc/wallet"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -36,12 +37,14 @@ func init() {
 
 type P2pServer struct {
 	bc      *blockchain.Blockchain
+	txPool  *wallet.TransactionPool
 	sockets []*websocket.Conn
 }
 
-func NewP2pServer(bc *blockchain.Blockchain) *P2pServer {
+func NewP2pServer(bc *blockchain.Blockchain, txPool *wallet.TransactionPool) *P2pServer {
 	return &P2pServer{
 		bc:      bc,
+		txPool:  txPool,
 		sockets: []*websocket.Conn{},
 	}
 }
@@ -119,8 +122,9 @@ func (server *P2pServer) messageHandler(socket *websocket.Conn) {
 		}
 
 		var data struct {
-			Type  MessageType   `json:"type"`
-			Chain []types.Block `json:"chain"`
+			Type        MessageType       `json:"type"`
+			Chain       []types.Block     `json:"chain"`
+			Transaction types.Transaction `json:"transaction"`
 		}
 
 		err = json.Unmarshal(message, &data)
@@ -129,16 +133,13 @@ func (server *P2pServer) messageHandler(socket *websocket.Conn) {
 			continue
 		}
 
-		// match the chain for debugging purpose
-		// log.Printf("Current chain length: %d", len(server.bc.Chain))
-		// log.Printf("Received chain length: %d", len(data.Chain))
-		// for i, block := range data.Chain {
-		// 	log.Printf("Received Block %d: Hash = %s", i, block.Hash)
-		// }
-
 		switch data.Type {
 		case CHAIN:
 			server.bc.ReplaceChain(data.Chain)
+		case TRANSACTION:
+			server.txPool.UpdateOrAddTransaction(&data.Transaction)
+		case CLEAR_TRANSACTIONS:
+			server.txPool.Clear()
 		}
 
 	}
@@ -183,5 +184,20 @@ func (server *P2pServer) sendTransaction(socket *websocket.Conn, transaction typ
 	err := socket.WriteJSON(message)
 	if err != nil {
 		log.Println("Error sending transaction:", err)
+	}
+}
+
+func (server *P2pServer) BroadcastClearTransactions() {
+	for _, socket := range server.sockets {
+		message := struct {
+			Type MessageType `json:"type"`
+		}{
+			Type: CLEAR_TRANSACTIONS,
+		}
+
+		err := socket.WriteJSON(message)
+		if err != nil {
+			log.Println("Error broadcasting clear transactions:", err)
+		}
 	}
 }

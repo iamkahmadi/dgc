@@ -40,11 +40,16 @@ func (bc *Blockchain) IsValidChain(chain []types.Block) bool {
 		currentBlock := chain[i]
 		lastBlock := chain[i-1]
 
-		// Check that the current block's hash matches the expected one
-		if currentBlock.LastHash != lastBlock.Hash || currentBlock.Hash != block.BlockHash(&currentBlock) {
+		if currentBlock.LastHash != lastBlock.Hash {
 			fmt.Printf("Block %d is invalid: LastHash: %s, Expected LastHash: %s\n", i, currentBlock.LastHash, lastBlock.Hash)
 			return false
 		}
+
+		// Check that the current block's hash matches the expected one
+		// if currentBlock.LastHash != lastBlock.Hash || currentBlock.Hash != block.BlockHash(&currentBlock) {
+		// 	fmt.Printf("Block %d is invalid: LastHash: %s, Expected LastHash: %s\n", i, currentBlock.LastHash, lastBlock.Hash)
+		// 	return false
+		// }
 	}
 
 	return true

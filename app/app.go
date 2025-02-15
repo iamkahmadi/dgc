@@ -3,7 +3,6 @@ package app
 import (
 	"dgc/block"
 	"dgc/blockchain"
-	"dgc/types"
 	"dgc/wallet"
 	"encoding/json"
 	"io/ioutil"
@@ -15,10 +14,12 @@ import (
 
 var (
 	// First, check if the environment variable exists
-	HTTP_PORT = getEnv("HTTP_PORT", "3001") // If HTTP_PORT is not set, it will default to "3001"
-	bc        = blockchain.NewBlockchain()
-	tp        = wallet.NewTransactionPool()
-	p2pServer = NewP2pServer(bc)
+	HTTP_PORT   = getEnv("HTTP_PORT", "3001") // If HTTP_PORT is not set, it will default to "3001"
+	bc          = blockchain.NewBlockchain()
+	tp          = wallet.NewTransactionPool()
+	p2pServer   = NewP2pServer(bc, tp)
+	localWallet = wallet.NewWallet()
+	localMiner  = NewMiner(bc, tp, localWallet, p2pServer)
 )
 
 // Helper function to get environment variable or fallback to default value
@@ -30,11 +31,6 @@ func getEnv(key, fallback string) string {
 	return value
 }
 
-// Struct to capture the request body, now expecting a transaction
-type MineRequest struct {
-	TransactionData string `json:"transaction_data"` // Assuming transaction data is passed as a string
-}
-
 func getBlocks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(bc.Chain)
@@ -44,98 +40,35 @@ func getBlocks(w http.ResponseWriter, r *http.Request) {
 }
 
 func mineBlock(w http.ResponseWriter, r *http.Request) {
-	// Read the body of the request
-	var req MineRequest
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	// Check if there are transactions in the transaction pool
+	if len(tp.Transactions) == 0 {
+		// Respond with a JSON message saying no transactions are available
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]string{"error": "No transactions in transaction pool"}
+		err := json.NewEncoder(w).Encode(response)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
-	// Parse the JSON body into the MineRequest struct
-	err = json.Unmarshal(body, &req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Unmarshal the transaction data into a *types.Transaction
-	var transaction *types.Transaction
-	err = json.Unmarshal([]byte(req.TransactionData), &transaction)
-	if err != nil {
-		http.Error(w, "Error unmarshaling transaction data: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Add the transaction to the transaction pool
-	tp.UpdateOrAddTransaction(transaction) // Add this line
-
-	// Add the new block to the blockchain with the transaction data
-	// data := []*types.Transaction{transaction} // Create a slice containing the transaction
-	// newBlock := bc.AddBlock(data)             // Call AddBlock with the transaction slice
-
-	// just checking
+	// Proceed with mining the block if there are transactions
 	newBlock := bc.AddBlock(tp.Transactions)
-
 	// Log the added block
 	log.Printf("New block added: %s", block.ToString(&newBlock))
-
-	// Respond with the newly mined block
+	tp.Clear()
+	// Respond with the newly mined block in JSON format
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(newBlock)
+	err := json.NewEncoder(w).Encode(newBlock)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Optionally, you can sync with other peers if you have a P2P server
+	// Optionally, sync with other peers if you have a P2P server
 	p2pServer.syncChains()
 }
-
-// direclyt adds transaction with putting it in pool
-// func mineBlock(w http.ResponseWriter, r *http.Request) {
-// 	// Read the body of the request
-// 	var req MineRequest
-// 	body, err := ioutil.ReadAll(r.Body)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	// Parse the JSON body into the MineRequest struct
-// 	err = json.Unmarshal(body, &req)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	// Here, you would typically unmarshal the transaction data into a *types.Transaction
-// 	// For simplicity, let's assume the transaction data is passed as a JSON string
-// 	var transaction *types.Transaction
-// 	err = json.Unmarshal([]byte(req.TransactionData), &transaction)
-// 	if err != nil {
-// 		http.Error(w, "Error unmarshaling transaction data: "+err.Error(), http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	// Add the new block to the blockchain with the transaction data
-// 	data := []*types.Transaction{transaction} // Create a slice containing the transaction
-// 	newBlock := bc.AddBlock(data)             // Call AddBlock with the transaction slice
-
-// 	// Log the added block
-// 	log.Printf("New block added: %s", block.ToString(&newBlock))
-
-// 	// Respond with the newly mined block
-// 	w.Header().Set("Content-Type", "application/json")
-// 	err = json.NewEncoder(w).Encode(newBlock)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	// Optionally, you can sync with other peers if you have a P2P server
-// 	p2pServer.syncChains()
-// }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -184,12 +117,36 @@ func createTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func mineTransactions(w http.ResponseWriter, r *http.Request) {
+	b := localMiner.Mine()
+
+	// Log the added block
+	log.Printf("New block added: %s", block.ToString(&b))
+
+	// Respond with the newly mined block
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(b)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func getPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(map[string]string{"publicKey": localMiner.Wallet.PublicKey})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 func App() {
 	// Routes
 	http.HandleFunc("/blocks", getBlocks)
 	http.HandleFunc("/mine", mineBlock)
 	http.HandleFunc("/transactions", getTransactions)
 	http.HandleFunc("/transact", createTransaction)
+	http.HandleFunc("/mine-transactions", mineTransactions)
+	http.HandleFunc("/public-key", getPublicKey)
 
 	// Show a message before starting the server
 	log.Printf("Starting server on port %s...\n", HTTP_PORT)

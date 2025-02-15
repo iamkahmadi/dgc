@@ -1,8 +1,8 @@
 package app
 
 import (
-	"dgc/block"
 	"dgc/blockchain"
+	"dgc/types"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -120,7 +120,7 @@ func (server *P2pServer) messageHandler(socket *websocket.Conn) {
 
 		var data struct {
 			Type  MessageType   `json:"type"`
-			Chain []block.Block `json:"chain"`
+			Chain []types.Block `json:"chain"`
 		}
 
 		err = json.Unmarshal(message, &data)
@@ -147,7 +147,7 @@ func (server *P2pServer) messageHandler(socket *websocket.Conn) {
 func (server *P2pServer) sendChain(socket *websocket.Conn) {
 	message := struct {
 		Type  MessageType   `json:"type"`
-		Chain []block.Block `json:"chain"`
+		Chain []types.Block `json:"chain"`
 	}{
 		Type:  CHAIN,
 		Chain: server.bc.Chain,
@@ -162,5 +162,26 @@ func (server *P2pServer) sendChain(socket *websocket.Conn) {
 func (server *P2pServer) syncChains() {
 	for _, socket := range server.sockets {
 		server.sendChain(socket)
+	}
+}
+
+func (server *P2pServer) BroadcastTransaction(transaction *types.Transaction) {
+	for _, socket := range server.sockets {
+		server.sendTransaction(socket, *transaction)
+	}
+}
+
+func (server *P2pServer) sendTransaction(socket *websocket.Conn, transaction types.Transaction) {
+	message := struct {
+		Type        MessageType       `json:"type"`
+		Transaction types.Transaction `json:"transaction"`
+	}{
+		Type:        TRANSACTION,
+		Transaction: transaction,
+	}
+
+	err := socket.WriteJSON(message)
+	if err != nil {
+		log.Println("Error sending transaction:", err)
 	}
 }

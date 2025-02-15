@@ -20,3 +20,9 @@ wscat -c ws://localhost:5002
 To clear all environment variables in your current PowerShell session, you can use the following command:
 powershell
 Remove-Item env:*
+
+sample transaction data 
+
+{
+    "transaction_data": "{\"ID\":\"1\",\"Input\":{\"Timestamp\":1625247600,\"Amount\":10,\"Address\":\"test_address\",\"Signature\":\"eW91cl9zaWduYXR1cmVfZGF0YQ==\"},\"Outputs\":[{\"Amount\":10,\"Address\":\"recipient_address\"}]}"
+}

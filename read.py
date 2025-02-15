@@ -3,8 +3,8 @@ directory = os.getcwd()
 output_file = os.path.join(directory, "output.txt")
 
 # Lists of folder names and file names to ignore
-folders_to_ignore = ['blockchain_data', "summaries"]
-files_to_ignore = ['prompt.txt', 'output.txt', "read.py", "resp.txt","go.mod", "go.sum", ".gitignore", "package-lock.json", "README.md"]
+folders_to_ignore = ['blockchain_data', "summaries", ".git"]
+files_to_ignore = ['prompt.txt', 'output.txt', "read.py", "resp.txt","go.mod", "go.sum", ".gitignore", "package-lock.json", "README.md", "app.check", "p2p-server.check","go.mod","go.sum"]
 
 with open(output_file, 'w', encoding='utf-8') as out_file:
     for root, dirs, files in os.walk(directory):

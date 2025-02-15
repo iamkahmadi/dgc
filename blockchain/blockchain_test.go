@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"dgc/block"
+	"dgc/types"
 	"fmt"
 	"testing"
 )
@@ -25,8 +26,21 @@ func TestNewBlockchain(t *testing.T) {
 func TestAddBlock(t *testing.T) {
 	bc := NewBlockchain()
 
-	// Add a block to the blockchain
-	data := []string{"block 1 data"}
+	// Create a transaction for testing
+	transaction := &types.Transaction{
+		ID: "1",
+		Input: &types.Input{
+			Timestamp: 0,
+			Amount:    10,
+			Address:   "test_address",
+			Signature: []byte("signature"),
+		},
+		Outputs: []types.Output{
+			{Amount: 10, Address: "recipient_address"},
+		},
+	}
+
+	data := []*types.Transaction{transaction} // Use []*types.Transaction instead of []string
 	newBlock := bc.AddBlock(data)
 
 	// Check if the blockchain length increased
@@ -44,8 +58,21 @@ func TestAddBlock(t *testing.T) {
 func TestIsValidChain(t *testing.T) {
 	bc := NewBlockchain()
 
-	// Add a block to the blockchain
-	data := []string{"block 1 data"}
+	// Create a transaction for testing
+	transaction := &types.Transaction{
+		ID: "1",
+		Input: &types.Input{
+			Timestamp: 0,
+			Amount:    10,
+			Address:   "test_address",
+			Signature: []byte("signature"),
+		},
+		Outputs: []types.Output{
+			{Amount: 10, Address: "recipient_address"},
+		},
+	}
+
+	data := []*types.Transaction{transaction} // Use []*types.Transaction instead of []string
 	bc.AddBlock(data)
 
 	// Validate the current chain
@@ -54,46 +81,59 @@ func TestIsValidChain(t *testing.T) {
 	}
 
 	// Modify the blockchain to invalidate it
-	invalidChain := bc.Chain
-	invalidChain[1].Data = []string{"tampered data"}
+	bc.Chain[1].Data[0].Outputs[0].Address = "tampered_address" // Tamper with a transaction
 
-	// Validate the tampered chain
-	if bc.IsValidChain(invalidChain) {
-		t.Error("Blockchain should not be valid")
+	if bc.IsValidChain(bc.Chain) {
+		t.Error("Blockchain should not be valid after tampering")
 	}
 }
 
+// TestReplaceChain tests replacing the current chain with a new valid chain
 func TestReplaceChain(t *testing.T) {
 	bc := NewBlockchain()
 
-	// Add the first block
-	data1 := []string{"block 1 data"}
-	bc.AddBlock(data1)
-
-	// Create a new, longer chain with one additional block
-	newChain := append([]block.Block{}, bc.Chain...)
-	newBlock := block.MineBlock(bc.Chain[len(bc.Chain)-1], []string{"block 2 data"})
-	newChain = append(newChain, newBlock)
-
-	// Validate the new chain before replacing
-	fmt.Println("New chain data before replacement:")
-	for _, blk := range newChain {
-		fmt.Println(blk.ToString())
+	transaction1 := &types.Transaction{
+		ID: "1",
+		Input: &types.Input{
+			Timestamp: 0,
+			Amount:    10,
+			Address:   "test_address",
+			Signature: []byte("signature"),
+		},
+		Outputs: []types.Output{
+			{Amount: 10, Address: "recipient_address"},
+		},
 	}
+
+	transaction2 := &types.Transaction{
+		ID: "2",
+		Input: &types.Input{
+			Timestamp: 0,
+			Amount:    20,
+			Address:   "test_address_2",
+			Signature: []byte("signature_2"),
+		},
+		Outputs: []types.Output{
+			{Amount: 20, Address: "recipient_address_2"},
+		},
+	}
+
+	bc.AddBlock([]*types.Transaction{transaction1})
+
+	newChain := append([]types.Block{}, bc.Chain...)
+	newBlock := block.MineBlock(bc.Chain[len(bc.Chain)-1], []*types.Transaction{transaction2})
+	newChain = append(newChain, newBlock)
 
 	if !bc.IsValidChain(newChain) {
 		t.Error("New chain is not valid")
 	}
 
-	// Replace the current blockchain with the new chain
 	bc.ReplaceChain(newChain)
 
-	// Ensure the blockchain is replaced with the new chain
 	if len(bc.Chain) != len(newChain) {
 		t.Errorf("Expected blockchain length of %d, got %d", len(newChain), len(bc.Chain))
 	}
 
-	// Check if the new blockchain is valid
 	if !bc.IsValidChain(bc.Chain) {
 		t.Error("Blockchain should be valid after replacement")
 	}
@@ -103,19 +143,29 @@ func TestReplaceChain(t *testing.T) {
 func TestReplaceInvalidChain(t *testing.T) {
 	bc := NewBlockchain()
 
-	// Add a block to the blockchain
-	data := []string{"block 1 data"}
-	bc.AddBlock(data)
+	transaction := &types.Transaction{
+		ID: "1",
+		Input: &types.Input{
+			Timestamp: 0,
+			Amount:    10,
+			Address:   "test_address",
+			Signature: []byte("signature"),
+		},
+		Outputs: []types.Output{
+			{Amount: 10, Address: "recipient_address"},
+		},
+	}
 
-	// Create a new chain with an invalid block (tampered data)
-	newChain := append([]block.Block{}, bc.Chain...)
-	newChain = append(newChain, block.MineBlock(bc.Chain[len(bc.Chain)-1], []string{"tampered block data"}))
-	newChain[1].Data = []string{"tampered data"}
+	bc.AddBlock([]*types.Transaction{transaction})
 
-	// Attempt to replace the blockchain with the invalid chain
+	newChain := append([]types.Block{}, bc.Chain...)
+	newBlock := block.MineBlock(bc.Chain[len(bc.Chain)-1], []*types.Transaction{transaction})
+	newBlock.Data[0].Outputs[0].Address = "tampered_address" // Tamper with a transaction
+
+	newChain = append(newChain, newBlock)
+
 	bc.ReplaceChain(newChain)
 
-	// Ensure the blockchain is not replaced with an invalid chain
 	if len(bc.Chain) != 2 {
 		t.Errorf("Blockchain length should still be 2, got %d", len(bc.Chain))
 	}

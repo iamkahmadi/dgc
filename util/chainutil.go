@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -45,4 +46,50 @@ func VerifySignature(publicKey *ecdsa.PublicKey, signature []byte, dataHash stri
 	s.SetBytes(signature[(signatureLen / 2):])
 
 	return ecdsa.Verify(publicKey, hashBytes, r, s)
+}
+
+// SignData signs the given data hash using the provided private key
+func SignData(privKey *ecdsa.PrivateKey, dataHash string) ([]byte, error) {
+	hashBytes := []byte(dataHash)
+
+	// Generate signature (r, s values)
+	r, s, err := ecdsa.Sign(rand.Reader, privKey, hashBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert r, s values to bytes and concatenate them
+	signature := append(r.Bytes(), s.Bytes()...)
+	return signature, nil
+}
+
+// PublicKeyToHex converts an ECDSA public key to a hexadecimal string
+func PublicKeyToHex(pubKey *ecdsa.PublicKey) string {
+	if pubKey == nil {
+		return ""
+	}
+
+	// Create a byte slice to hold the X and Y coordinates
+	pubKeyBytes := append(pubKey.X.Bytes(), pubKey.Y.Bytes()...)
+	return hex.EncodeToString(pubKeyBytes)
+}
+
+// HexToPublicKey converts a hexadecimal string to an ECDSA public key
+func HexToPublicKey(hexString string) (*ecdsa.PublicKey, error) {
+	bytes, err := hex.DecodeString(hexString)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(bytes) != 64 { // Ensure we have 64 bytes (32 bytes for X and 32 bytes for Y)
+		return nil, errors.New("invalid public key length")
+	}
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: elliptic.P256(), // Change this if using a different curve
+		X:     new(big.Int).SetBytes(bytes[:32]),
+		Y:     new(big.Int).SetBytes(bytes[32:]),
+	}
+
+	return pubKey, nil
 }

@@ -2,30 +2,31 @@ package blockchain
 
 import (
 	"dgc/block"
+	"dgc/types"
 	"fmt"
 )
 
 type Blockchain struct {
-	Chain []block.Block
+	Chain []types.Block
 }
 
 // NewBlockchain initializes a new Blockchain with the Genesis block
 func NewBlockchain() *Blockchain {
 	return &Blockchain{
-		Chain: []block.Block{block.Genesis()},
+		Chain: []types.Block{block.Genesis()},
 	}
 }
 
 // AddBlock adds a new block to the chain
-func (bc *Blockchain) AddBlock(data []string) block.Block {
+func (bc *Blockchain) AddBlock(data []*types.Transaction) types.Block {
 	lastBlock := bc.Chain[len(bc.Chain)-1]
-	block := block.MineBlock(lastBlock, data)
-	bc.Chain = append(bc.Chain, block)
-	return block
+	newBlock := block.MineBlock(lastBlock, data)
+	bc.Chain = append(bc.Chain, newBlock)
+	return newBlock
 }
 
 // IsValidChain validates if the provided chain is a valid blockchain
-func (bc *Blockchain) IsValidChain(chain []block.Block) bool {
+func (bc *Blockchain) IsValidChain(chain []types.Block) bool {
 	// Check if the first block is the Genesis block
 	if fmt.Sprintf("%v", chain[0]) != fmt.Sprintf("%v", block.Genesis()) {
 		fmt.Println("Genesis block is invalid.")
@@ -36,12 +37,12 @@ func (bc *Blockchain) IsValidChain(chain []block.Block) bool {
 
 	// Check the rest of the blocks
 	for i := 1; i < len(chain); i++ {
-		block := chain[i]
+		currentBlock := chain[i]
 		lastBlock := chain[i-1]
 
 		// Check that the current block's hash matches the expected one
-		if block.LastHash != lastBlock.Hash || block.Hash != block.BlockHash() {
-			fmt.Printf("Block %d is invalid: LastHash: %s, Expected LastHash: %s\n", i, block.LastHash, lastBlock.Hash)
+		if currentBlock.LastHash != lastBlock.Hash || currentBlock.Hash != block.BlockHash(&currentBlock) {
+			fmt.Printf("Block %d is invalid: LastHash: %s, Expected LastHash: %s\n", i, currentBlock.LastHash, lastBlock.Hash)
 			return false
 		}
 	}
@@ -50,7 +51,7 @@ func (bc *Blockchain) IsValidChain(chain []block.Block) bool {
 }
 
 // ReplaceChain replaces the current blockchain with a new one if it's valid and longer
-func (bc *Blockchain) ReplaceChain(newChain []block.Block) {
+func (bc *Blockchain) ReplaceChain(newChain []types.Block) {
 	// Ensure the new chain is longer than the current chain
 	if len(newChain) <= len(bc.Chain) {
 		fmt.Println("Received chain is not longer than the current chain.")

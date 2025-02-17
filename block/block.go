@@ -59,9 +59,18 @@ func MineBlock(lastBlock types.Block, data []*types.Transaction) types.Block { /
 	}
 }
 
-// Hash generates the hash of a block
-func Hash(timestamp int64, lastHash string, data []*types.Transaction, nonce int, difficulty int) string { // Change data parameter type
-	return util.ChainUtilHash(fmt.Sprintf("%d%s%v%d%d", timestamp, lastHash, data, nonce, difficulty))
+// // Hash generates the hash of a block
+// func Hash(timestamp int64, lastHash string, data []*types.Transaction, nonce int, difficulty int) string {
+// 	return util.ChainUtilHash(fmt.Sprintf("%d%s%v%d%d", timestamp, lastHash, data, nonce, difficulty))
+// }
+
+func Hash(timestamp int64, lastHash string, data []*types.Transaction, nonce int, difficulty int) string {
+	// Serialize the data explicitly by converting each transaction to a string
+	var serializedData string
+	for _, tx := range data {
+		serializedData += fmt.Sprintf("%s%s%d%v", tx.ID, tx.Input.Address, tx.Input.Amount, tx.Outputs)
+	}
+	return util.ChainUtilHash(fmt.Sprintf("%d%s%s%d%d", timestamp, lastHash, serializedData, nonce, difficulty))
 }
 
 // BlockHash creates the block hash using SHA256 and is a method of the Block type (converted to function)
